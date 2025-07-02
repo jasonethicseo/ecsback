@@ -1,0 +1,99 @@
+name: Deploy to Amazon ECS with CodeDeploy
+
+# main 브랜치에 코드가 푸시될 때 워크플로우를 실행합니다.
+on:
+  push:
+    branches:
+      - dev
+
+# 워크플로우에서 사용할 환경 변수입니다.
+# 실제 값은 GitHub 리포지토리의 Secrets에 저장하는 것이 안전합니다.
+env:
+  AWS_REGION: ca-central-1 # AWS 리전
+  ECR_REPOSITORY: aws-ecr-dev-test-backend # ECR 리포지토리 이름
+  # Terraform으로 생성한 ECS 서비스, 클러스터, 작업 정의 이름을 정확히 기입합니다.
+  ECS_SERVICE: aws-svc-dev-test # ECS 서비스 이름
+  ECS_CLUSTER: aws-ecs-dev-test # ECS 클러스터 이름
+  # 작업 정의 이름(Family)을 지정합니다. 예: my-app-task-def
+  ECS_TASK_DEFINITION_FAMILY: aws-tdn-dev-test 
+  # 작업 정의 내에 있는 컨테이너의 이름입니다.
+  CONTAINER_NAME: test-backend
+
+jobs:
+  # ==================================================================
+  #  1. 빌드 및 ECR 푸시 (Build, Tag, and Push)
+  # ==================================================================
+  build-and-push:
+    name: Build and Push to ECR
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. 소스 코드 체크아웃
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. AWS 자격 증명 설정
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 3. Amazon ECR 로그인
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 4. Docker 이미지 빌드, 태깅, 푸시
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }} # Git 커밋 해시를 이미지 태그로 사용 (고유성 보장)
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          # 다음 잡에서 사용할 수 있도록 이미지 URI를 출력 변수로 설정
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+  # ==================================================================
+  #  2. ECS 배포 (Deploy to ECS)
+  # ==================================================================
+  deploy:
+    name: Deploy to ECS
+    needs: build-and-push # 'build-and-push' 잡이 성공해야 실행됩니다.
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. AWS 자격 증명 설정 (배포 잡에서도 필요)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 2. 새 이미지로 ECS 작업 정의 업데이트
+      # 이 액션이 Terraform으로 만든 작업 정의를 읽어 새 리비전을 만듭니다.
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-definition.json
+
+      - name: Fill in the new image ID in the Amazon ECS task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json # 다운로드한 작업 정의 파일
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ needs.build-and-push.outputs.image }} # 빌드 잡에서 전달받은 새 이미지 URI
+
+      # 3. 새 작업 정의를 ECS 서비스에 배포 (CodeDeploy 트리거)
+      # 이 액션이 ECS 서비스를 업데이트하여 CodeDeploy 블루/그린 배포를 시작시킵니다.
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true # 배포가 안정적으로 완료될 때까지 대기
