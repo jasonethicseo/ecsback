@@ -3,7 +3,7 @@ Resources:
   - TargetService:
       Type: AWS::ECS::Service
       Properties:
-        TaskDefinition: "arn:aws:ecs:ca-central-1:971422701599:task-definition/aws-tdn-dev-test:6" # 본인 Task 명
+        TaskDefinition: "arn:aws:ecs:ca-central-1:971422701599:task-definition/aws-tdn-dev-test:7" # 본인 Task 명
         LoadBalancerInfo:
           ContainerName: "test-backend" # 본인 컨테이너 명
           ContainerPort: 8080
