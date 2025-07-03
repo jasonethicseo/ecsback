@@ -96,6 +96,11 @@ jobs:
           # ❗️ needs 컨텍스트를 사용해 앞 job의 output을 정확히 가져옵니다.
           image: ${{ needs.build-and-push.outputs.image }}
 
+      - name: Debug workspace
+        run: |
+          pwd
+          ls -R .
+
       # ↓ CodeDeploy 로 실제 블루/그린 배포를 호출하는 스텝 예시
       - name: Create CodeDeploy deployment
         run: |
