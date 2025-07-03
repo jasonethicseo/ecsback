@@ -121,11 +121,3 @@ jobs:
             --query deploymentId --output text)
 
           echo "Deployment ID: $DEPLOY_ID"
-
-          # 3) 배포 완료 대기
-          aws deploy wait deployment-successful \
-            --deployment-id $DEPLOY_ID \
-            --region ${{ env.AWS_REGION }}
-
-      - name: Deployment succeeded
-        run: echo "✅ CodeDeploy 배포가 성공적으로 완료되었습니다."
