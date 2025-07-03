@@ -72,7 +72,7 @@ jobs:
     needs: build-and-push # 'build-and-push' job이 성공해야 실행됩니다.
     runs-on: ubuntu-latest
 
-    
+
     steps:
       # 소스 코드 체크아웃
       - name: Checkout repository
@@ -86,45 +86,46 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # 기존 작업 정의 다운로드
-      - name: Download task definition
-        run: |
-          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-definition.json
+      # # 기존 작업 정의 다운로드
+      # - name: Download task definition
+      #   run: |
+      #     aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-definition.json
 
-      # 다운로드한 작업 정의에 새 이미지 주소 주입
-      - name: Render new task definition
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: task-definition.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          # ❗️ needs 컨텍스트를 사용해 앞 job의 output을 정확히 가져옵니다.
-          image: ${{ needs.build-and-push.outputs.image }}
+      # # 다운로드한 작업 정의에 새 이미지 주소 주입
+      # - name: Render new task definition
+      #   id: task-def
+      #   uses: aws-actions/amazon-ecs-render-task-definition@v1
+      #   with:
+      #     task-definition: task-definition.json
+      #     container-name: ${{ env.CONTAINER_NAME }}
+      #     # ❗️ needs 컨텍스트를 사용해 앞 job의 output을 정확히 가져옵니다.
+      #     image: ${{ needs.build-and-push.outputs.image }}
 
       - name: Debug workspace
         run: |
           pwd
           ls -R .
 
-      # ↓ CodeDeploy 로 실제 블루/그린 배포를 호출하는 스텝 예시
+
       - name: Create CodeDeploy deployment
         run: |
-          # 1) appspec.yml 전체를 Raw string(JSON escape)로 읽어서 변수에 담기
-          APP_SPEC_CONTENT=$(jq -Rs . < appspec.yml)
-          
-          # 2) revision 파라미터를 JSON 문자열로 통째로 넘기기
-          aws deploy create-deployment \
-            --application-name $CODEDEPLOY_APPLICATION \
-            --deployment-group-name $CODEDEPLOY_DEPLOYMENT_GROUP \
-            --revision "{\"revisionType\":\"AppSpecContent\",\"appSpecContent\":{\"content\":$APP_SPEC_CONTENT}}" \
-            --region $AWS_REGION
+          # 1) appspec.yml을 한 줄짜리 JSON 문자열로 읽어서 변수에 담기
+          APP_SPEC_JSON=$(jq -Rs . < ecssource/ecsback/appspec.yml)
 
+          # 2) CodeDeploy 배포 생성
+          DEPLOY_ID=$(aws deploy create-deployment \
+            --application-name ${{ env.CODEDEPLOY_APPLICATION }} \
+            --deployment-group-name ${{ env.CODEDEPLOY_DEPLOYMENT_GROUP }} \
+            --revision "{\"revisionType\":\"AppSpecContent\",\"appSpecContent\":{\"content\":$APP_SPEC_JSON}}" \
+            --region ${{ env.AWS_REGION }} \
+            --query deploymentId --output text)
 
-      # 새 작업 정의를 ECS 서비스에 배포 (CodeDeploy 트리거)
-      - name: Deploy to ECS service
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+          echo "Deployment ID: $DEPLOY_ID"
+
+          # 3) 배포 완료 대기
+          aws deploy wait deployment-successful \
+            --deployment-id $DEPLOY_ID \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Deployment succeeded
+        run: echo "✅ CodeDeploy 배포가 성공적으로 완료되었습니다."
