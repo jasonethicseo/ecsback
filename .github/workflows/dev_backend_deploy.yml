@@ -105,6 +105,8 @@ jobs:
           task-definition: ${{ steps.render.outputs.task-definition }}
           service:         ${{ env.ECS_SERVICE }}
           cluster:         ${{ env.ECS_CLUSTER }}
+          codedeploy-application:      ${{ env.CODEDEPLOY_APPLICATION }}      # e.g. cd-app-dev-test
+          codedeploy-deployment-group: ${{ env.CODEDEPLOY_DEPLOYMENT_GROUP }}
           force-new-deployment:       true
           wait-for-service-stability: true
 
