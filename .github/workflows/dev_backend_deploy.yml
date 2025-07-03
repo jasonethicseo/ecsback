@@ -18,6 +18,10 @@ env:
   ECS_TASK_DEFINITION_FAMILY: aws-tdn-dev-test 
   # 작업 정의 내에 있는 컨테이너의 이름입니다.
   CONTAINER_NAME: test-backend
+  # 실제 생성된 CodeDeploy 애플리케이션 이름
+  CODEDEPLOY_APPLICATION: cd-app-dev-test
+  # 실제 생성된 배포 그룹 이름
+  CODEDEPLOY_DEPLOYMENT_GROUP: cd-dg-dev-test
 
 jobs:
   # ==================================================================
@@ -91,6 +95,16 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           # ❗️ needs 컨텍스트를 사용해 앞 job의 output을 정확히 가져옵니다.
           image: ${{ needs.build-and-push.outputs.image }}
+
+      # ↓ CodeDeploy 로 실제 블루/그린 배포를 호출하는 스텝 예시
+      - name: Create CodeDeploy deployment
+        run: |
+          aws deploy create-deployment \
+            --application-name ${{ env.CODEDEPLOY_APPLICATION }} \
+            --deployment-group-name ${{ env.CODEDEPLOY_DEPLOYMENT_GROUP }} \
+            --revision revisionType=AppSpecContent,appSpecContent=$(base64 -w0 appspec.yml) \
+            --region ${{ env.AWS_REGION }}
+
 
       # 새 작업 정의를 ECS 서비스에 배포 (CodeDeploy 트리거)
       - name: Deploy to ECS service
