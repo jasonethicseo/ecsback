@@ -4,10 +4,11 @@ Resources:
   - TargetService:
       Type: AWS::ECS::Service
       Properties:
-        TaskDefinition: aws-tdn-dev-test       # env.ECS_TASK_DEFINITION_FAMILY 혹은 실제 ARN
-        ContainerName: test-backend            # env.CONTAINER_NAME
-        ContainerPort: 8080                      # 서비스가 리스닝하는 포트
+        TaskDefinition: aws-tdn-dev-test       # family 이름 또는 ARN
+        ContainerName: test-backend            # 컨테이너 이름
+        ContainerPort: 8080                    # 서비스 포트
 
+        
 # hooks:
 #   BeforeInstall:
 #     - location: scripts/stop_old_task.sh

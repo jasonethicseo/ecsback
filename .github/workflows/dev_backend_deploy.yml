@@ -110,7 +110,7 @@ jobs:
       - name: Create CodeDeploy deployment
         run: |
           # 1) appspec.yml을 한 줄짜리 JSON 문자열로 읽어서 변수에 담기
-          APP_SPEC_JSON=$(jq -Rs . < ecssource/ecsback/appspec.yml)
+          APP_SPEC_JSON=$(jq -Rs . < appspec.yml)
 
           # 2) CodeDeploy 배포 생성
           DEPLOY_ID=$(aws deploy create-deployment \
