@@ -1,12 +1,13 @@
-version: 0.0
+version: 1.0
+
 Resources:
   - TargetService:
       Type: AWS::ECS::Service
       Properties:
-        TaskDefinition: "arn:aws:ecs:ca-central-1:381492185710:task-definition/test-task-back-970728:1" # 본인 Task 명
-        LoadBalancerInfo:
-          ContainerName: "backend" # 본인 컨테이너 명
-          ContainerPort: 80
+        TaskDefinition: aws-tdn-dev-test       # env.ECS_TASK_DEFINITION_FAMILY 혹은 실제 ARN
+        ContainerName: test-backend            # env.CONTAINER_NAME
+        ContainerPort: 8080                      # 서비스가 리스닝하는 포트
+
 # hooks:
 #   BeforeInstall:
 #     - location: scripts/stop_old_task.sh
