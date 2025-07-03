@@ -1,134 +1,240 @@
+# name: Deploy to Amazon ECS with CodeDeploy
+
+# # main 브랜치에 코드가 푸시될 때 워크플로우를 실행합니다.
+# on:
+#   push:
+#     branches:
+#       - dev
+
+# # 워크플로우에서 사용할 환경 변수입니다.
+# # 실제 값은 GitHub 리포지토리의 Secrets에 저장하는 것이 안전합니다.
+# env:
+#   AWS_REGION: ca-central-1 # AWS 리전
+#   ECR_REPOSITORY: aws-ecr-dev-test-backend # ECR 리포지토리 이름
+#   # Terraform으로 생성한 ECS 서비스, 클러스터, 작업 정의 이름을 정확히 기입합니다.
+#   ECS_SERVICE: aws-svc-dev-test # ECS 서비스 이름
+#   ECS_CLUSTER: aws-ecs-dev-test # ECS 클러스터 이름
+#   # 작업 정의 이름(Family)을 지정합니다. 예: my-app-task-def
+#   ECS_TASK_DEFINITION_FAMILY: aws-tdn-dev-test 
+#   # 작업 정의 내에 있는 컨테이너의 이름입니다.
+#   CONTAINER_NAME: test-backend
+#   # 실제 생성된 CodeDeploy 애플리케이션 이름
+#   CODEDEPLOY_APPLICATION: cd-app-dev-test
+#   # 실제 생성된 배포 그룹 이름
+#   CODEDEPLOY_DEPLOYMENT_GROUP: cd-dg-dev-test
+
+# jobs:
+#   # ==================================================================
+#   #  1. 빌드 및 ECR 푸시 (Build, Tag, and Push)
+#   # ==================================================================
+#   build-and-push:
+#     name: Build and Push to ECR
+#     runs-on: ubuntu-latest
+#     # ❗️ 이 job의 결과를 다른 job에서 사용할 수 있도록 outputs을 정의합니다.
+#     outputs:
+#       image: ${{ steps.build-image.outputs.image }}
+
+#     steps:
+#       # 소스 코드 체크아웃
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       # AWS 자격 증명 설정
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ env.AWS_REGION }}
+
+#       # Amazon ECR 로그인
+#       - name: Login to Amazon ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
+
+#       # Docker 이미지 빌드, 태깅, 푸시
+#       - name: Build, tag, and push image to Amazon ECR
+#         id: build-image # ❗️ 이 단계(step)에 id를 부여해야 outputs에서 참조 가능합니다.
+#         env:
+#           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           IMAGE_TAG: ${{ github.sha }}
+#         run: |
+#           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+#           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+#           # ❗️ 이 명령어로 이미지 URI를 'image'라는 이름의 출력 변수로 만듭니다.
+#           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+#   # ==================================================================
+#   #  2. ECS 배포 (Deploy to ECS)
+#   # ==================================================================
+#   deploy:
+#     name: Deploy to ECS
+#     needs: build-and-push # 'build-and-push' job이 성공해야 실행됩니다.
+#     runs-on: ubuntu-latest
+
+
+#     steps:
+#       # 소스 코드 체크아웃
+#       - name: Checkout repository
+#         uses: actions/checkout@v4
+
+#       # AWS 자격 증명 설정 (배포 job에서도 필요)
+#       - name: Configure AWS credentials
+#         uses: aws-actions/configure-aws-credentials@v4
+#         with:
+#           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#           aws-region: ${{ env.AWS_REGION }}
+
+#       # 기존 작업 정의 다운로드
+#       - name: Download task definition
+#         run: |
+#           aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-definition.json
+
+#       - name: Render new task definition
+#         id: render
+#         uses: aws-actions/amazon-ecs-render-task-definition@v1
+#         with:
+#           task-definition: task-definition.json
+#           container-name: test-backend
+#           image: ${{ needs.build-and-push.outputs.image }}
+      
+#       - name: Deploy to ECS
+#         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+#         with:
+#           task-definition: ${{ steps.render.outputs.task-definition }}
+#           service:         ${{ env.ECS_SERVICE }}
+#           cluster:         ${{ env.ECS_CLUSTER }}
+#           codedeploy-application:      ${{ env.CODEDEPLOY_APPLICATION }}      # e.g. cd-app-dev-test
+#           codedeploy-deployment-group: ${{ env.CODEDEPLOY_DEPLOYMENT_GROUP }}
+#           codedeploy-appspec: appspec.yml
+#           force-new-deployment:       true
+#           wait-for-service-stability: true
+
+
+#       # - name: Debug workspace
+#       #   run: |
+#       #     pwd
+#       #     ls -R .
+
+
+#       # - name: Create CodeDeploy deployment
+#       #   run: |
+#       #     # 1) appspec.yml을 한 줄짜리 JSON 문자열로 읽어서 변수에 담기
+#       #     APP_SPEC_JSON=$(jq -Rs . < appspec.yml)
+
+#       #     # 2) CodeDeploy 배포 생성
+#       #     DEPLOY_ID=$(aws deploy create-deployment \
+#       #       --application-name ${{ env.CODEDEPLOY_APPLICATION }} \
+#       #       --deployment-group-name ${{ env.CODEDEPLOY_DEPLOYMENT_GROUP }} \
+#       #       --revision "{\"revisionType\":\"AppSpecContent\",\"appSpecContent\":{\"content\":$APP_SPEC_JSON}}" \
+#       #       --region ${{ env.AWS_REGION }} \
+#       #       --query deploymentId --output text)
+
+#       #     echo "Deployment ID: $DEPLOY_ID"
+
+
 name: Deploy to Amazon ECS with CodeDeploy
 
-# main 브랜치에 코드가 푸시될 때 워크플로우를 실행합니다.
+# dev 브랜치에 코드가 푸시될 때 실행
 on:
   push:
     branches:
       - dev
 
-# 워크플로우에서 사용할 환경 변수입니다.
-# 실제 값은 GitHub 리포지토리의 Secrets에 저장하는 것이 안전합니다.
+# 워크플로우 전역 환경 변수
 env:
-  AWS_REGION: ca-central-1 # AWS 리전
-  ECR_REPOSITORY: aws-ecr-dev-test-backend # ECR 리포지토리 이름
-  # Terraform으로 생성한 ECS 서비스, 클러스터, 작업 정의 이름을 정확히 기입합니다.
-  ECS_SERVICE: aws-svc-dev-test # ECS 서비스 이름
-  ECS_CLUSTER: aws-ecs-dev-test # ECS 클러스터 이름
-  # 작업 정의 이름(Family)을 지정합니다. 예: my-app-task-def
-  ECS_TASK_DEFINITION_FAMILY: aws-tdn-dev-test 
-  # 작업 정의 내에 있는 컨테이너의 이름입니다.
+  AWS_REGION: ca-central-1
+  ECR_REPOSITORY: aws-ecr-dev-test-backend
+  ECS_SERVICE: aws-svc-dev-test
+  ECS_CLUSTER: aws-ecs-dev-test
+  ECS_TASK_DEFINITION_FAMILY: aws-tdn-dev-test
   CONTAINER_NAME: test-backend
-  # 실제 생성된 CodeDeploy 애플리케이션 이름
   CODEDEPLOY_APPLICATION: cd-app-dev-test
-  # 실제 생성된 배포 그룹 이름
   CODEDEPLOY_DEPLOYMENT_GROUP: cd-dg-dev-test
 
 jobs:
-  # ==================================================================
-  #  1. 빌드 및 ECR 푸시 (Build, Tag, and Push)
-  # ==================================================================
+  # 1) Docker 이미지 빌드 & ECR 푸시
   build-and-push:
-    name: Build and Push to ECR
     runs-on: ubuntu-latest
-    # ❗️ 이 job의 결과를 다른 job에서 사용할 수 있도록 outputs을 정의합니다.
     outputs:
       image: ${{ steps.build-image.outputs.image }}
-
     steps:
-      # 소스 코드 체크아웃
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      # AWS 자격 증명 설정
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region:            ${{ env.AWS_REGION }}
 
-      # Amazon ECR 로그인
-      - name: Login to Amazon ECR
+      - name: Login to ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Docker 이미지 빌드, 태깅, 푸시
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image # ❗️ 이 단계(step)에 id를 부여해야 outputs에서 참조 가능합니다.
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          IMAGE_TAG: ${{ github.sha }}
+      - name: Build, tag & push image
+        id: build-image
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          # ❗️ 이 명령어로 이미지 URI를 'image'라는 이름의 출력 변수로 만듭니다.
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          IMAGE_TAG=${GITHUB_SHA::7}  # 짧은 SHA로 태그
+          FULL_URI=${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG
+          docker build -t $FULL_URI .
+          docker push $FULL_URI
+          echo "image=$FULL_URI" >> $GITHUB_OUTPUT
 
-  # ==================================================================
-  #  2. ECS 배포 (Deploy to ECS)
-  # ==================================================================
+  # 2) 렌더→등록→AppSpec 생성→CodeDeploy 배포
   deploy:
-    name: Deploy to ECS
-    needs: build-and-push # 'build-and-push' job이 성공해야 실행됩니다.
+    needs: build-and-push
     runs-on: ubuntu-latest
-
-
     steps:
-      # 소스 코드 체크아웃
-      - name: Checkout repository
+      - name: Checkout repo
         uses: actions/checkout@v4
 
-      # AWS 자격 증명 설정 (배포 job에서도 필요)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region:            ${{ env.AWS_REGION }}
 
-      # 기존 작업 정의 다운로드
-      - name: Download task definition
+      # 2.1) 기존 Task Definition 가져오기
+      - name: Download current task definition
         run: |
-          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-definition.json
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} \
+            --query taskDefinition > task-definition.json
 
+      # 2.2) 새 이미지 태그로 렌더링
       - name: Render new task definition
         id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: task-definition.json
-          container-name: test-backend
-          image: ${{ needs.build-and-push.outputs.image }}
-      
-      - name: Deploy to ECS
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.render.outputs.task-definition }}
-          service:         ${{ env.ECS_SERVICE }}
-          cluster:         ${{ env.ECS_CLUSTER }}
-          codedeploy-application:      ${{ env.CODEDEPLOY_APPLICATION }}      # e.g. cd-app-dev-test
-          codedeploy-deployment-group: ${{ env.CODEDEPLOY_DEPLOYMENT_GROUP }}
-          codedeploy-appspec: appspec.yml
-          force-new-deployment:       true
-          wait-for-service-stability: true
+          container-name:   ${{ env.CONTAINER_NAME }}
+          image:            ${{ needs.build-and-push.outputs.image }}
 
-
-      - name: Debug workspace
+      # 2.3) 렌더된 JSON으로 Task Definition 등록 & ARN 저장
+      - name: Register new task definition
+        id: register
         run: |
-          pwd
-          ls -R .
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://task-definition.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "TASK_DEF_ARN=$ARN" >> $GITHUB_ENV
 
+      # 2.4) AppSpec 템플릿에서 최신 ARN 주입
+      - name: Generate AppSpec
+        run: |
+          sed "s|{{TASK_DEF_ARN}}|$TASK_DEF_ARN|g" appspec.yml.tpl > appspec.yml
 
+      # 2.5) CodeDeploy 배포 생성
       - name: Create CodeDeploy deployment
         run: |
-          # 1) appspec.yml을 한 줄짜리 JSON 문자열로 읽어서 변수에 담기
           APP_SPEC_JSON=$(jq -Rs . < appspec.yml)
-
-          # 2) CodeDeploy 배포 생성
-          DEPLOY_ID=$(aws deploy create-deployment \
-            --application-name ${{ env.CODEDEPLOY_APPLICATION }} \
+          aws deploy create-deployment \
+            --application-name     ${{ env.CODEDEPLOY_APPLICATION }} \
             --deployment-group-name ${{ env.CODEDEPLOY_DEPLOYMENT_GROUP }} \
             --revision "{\"revisionType\":\"AppSpecContent\",\"appSpecContent\":{\"content\":$APP_SPEC_JSON}}" \
-            --region ${{ env.AWS_REGION }} \
-            --query deploymentId --output text)
+            --region ${{ env.AWS_REGION }}
 
-          echo "Deployment ID: $DEPLOY_ID"
