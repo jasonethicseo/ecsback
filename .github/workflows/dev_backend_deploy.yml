@@ -91,15 +91,23 @@ jobs:
         run: |
           aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-definition.json
 
-      # 다운로드한 작업 정의에 새 이미지 주소 주입
       - name: Render new task definition
-        id: task-def
+        id: render
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: task-definition.json
-          container-name: ${{ env.CONTAINER_NAME }}
-          # ❗️ needs 컨텍스트를 사용해 앞 job의 output을 정확히 가져옵니다.
+          container-name: test-backend
           image: ${{ needs.build-and-push.outputs.image }}
+      
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          service:         ${{ env.ECS_SERVICE }}
+          cluster:         ${{ env.ECS_CLUSTER }}
+          force-new-deployment:       true
+          wait-for-service-stability: true
+
 
       - name: Debug workspace
         run: |
