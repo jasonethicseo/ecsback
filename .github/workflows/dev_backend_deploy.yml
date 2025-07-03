@@ -86,20 +86,20 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # # 기존 작업 정의 다운로드
-      # - name: Download task definition
-      #   run: |
-      #     aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-definition.json
+      # 기존 작업 정의 다운로드
+      - name: Download task definition
+        run: |
+          aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} --query taskDefinition > task-definition.json
 
-      # # 다운로드한 작업 정의에 새 이미지 주소 주입
-      # - name: Render new task definition
-      #   id: task-def
-      #   uses: aws-actions/amazon-ecs-render-task-definition@v1
-      #   with:
-      #     task-definition: task-definition.json
-      #     container-name: ${{ env.CONTAINER_NAME }}
-      #     # ❗️ needs 컨텍스트를 사용해 앞 job의 output을 정확히 가져옵니다.
-      #     image: ${{ needs.build-and-push.outputs.image }}
+      # 다운로드한 작업 정의에 새 이미지 주소 주입
+      - name: Render new task definition
+        id: task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          # ❗️ needs 컨텍스트를 사용해 앞 job의 output을 정확히 가져옵니다.
+          image: ${{ needs.build-and-push.outputs.image }}
 
       - name: Debug workspace
         run: |
